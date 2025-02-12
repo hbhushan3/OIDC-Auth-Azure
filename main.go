@@ -1,39 +1,108 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/coreos/go-oidc"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/microsoft"
 )
 
-// Retrieve configuration from environment variables
+// Global variables to store credentials
 var (
-	clientID     = os.Getenv("CLIENT_ID")
-	clientSecret = os.Getenv("CLIENT_SECRET")
-	redirectURL  = os.Getenv("REDIRECT_URL")
+	clientID     string
+	clientSecret string
+	redirectURL  string
+	tenant       string
+	config       oauth2.Config
 )
 
-var (
-	// Create an OAuth2 config object
+// ReadConfig reads key-value pairs from config.txt file and returns a map
+/* Example config.txt
+client_id=sdffsdf
+client_secret=sdfsdf
+redirect_url=http://localhost:8080/callback
+tenant=sdfsdfsd
+*/
+func ReadConfig(filename string) (map[string]string, error) {
+	config := make(map[string]string)
+
+	file, err := os.Open(filename)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		// Ignore empty lines and comments
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid config line: %s", line)
+		}
+
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+		config[key] = value
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+
+	// Validate required fields
+	requiredKeys := []string{"client_id", "client_secret", "redirect_url", "tenant"}
+	for _, key := range requiredKeys {
+		if config[key] == "" {
+			return nil, fmt.Errorf("missing required config: %s", key)
+		}
+	}
+
+	return config, nil
+}
+
+func main() {
+	// Load config from file
+	configData, err := ReadConfig("config.txt")
+	if err != nil {
+		log.Fatalf("Error reading config file: %v", err)
+	}
+
+	// Assign values to global variables
+	var exists bool
+	if clientID, exists = configData["client_id"]; !exists || clientID == "" {
+		log.Fatal("client_id not found in config file")
+	}
+
+	if clientSecret, exists = configData["client_secret"]; !exists || clientSecret == "" {
+		log.Fatal("client_secret not found in config file")
+	}
+
+	if redirectURL, exists = configData["redirect_url"]; !exists || redirectURL == "" {
+		log.Fatal("redirect_url not found in config file")
+	}
+
+	if tenant, exists = configData["tenant"]; !exists || tenant == "" {
+		log.Fatal("tenant not found in config file")
+	}
+
+	// Initialize OAuth2 config with updated values
 	config = oauth2.Config{
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
 		RedirectURL:  redirectURL,
-		Endpoint:     microsoft.AzureADEndpoint("common"),
+		Endpoint:     microsoft.AzureADEndpoint(tenant),
 		Scopes:       []string{oidc.ScopeOpenID, "profile", "email"},
-	}
-)
-
-func main() {
-	// Check if environment variables are properly set
-	if clientID == "" || clientSecret == "" || redirectURL == "" {
-		log.Fatal("Environment variables CLIENT_ID, CLIENT_SECRET, or REDIRECT_URL are not set")
 	}
 
 	http.HandleFunc("/", handleHome)
@@ -72,7 +141,7 @@ func handleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Set up an OpenID Connect verifier
-	provider, err := oidc.NewProvider(ctx, "https://login.microsoftonline.com/<tenant-id>/v2.0")
+	provider, err := oidc.NewProvider(ctx, fmt.Sprintf("https://login.microsoftonline.com/%s/v2.0", tenant))
 	if err != nil {
 		http.Error(w, "Failed to get provider: "+err.Error(), http.StatusInternalServerError)
 		return

@@ -1,0 +1,4 @@
+client_id=asdf
+client_secret=sdfgsdfsdf
+redirect_url=http://localhost:8080/callback
+tenant=asdf-sdfsd-fsdfsd

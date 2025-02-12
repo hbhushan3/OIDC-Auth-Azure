@@ -1,6 +1,6 @@
 module test-app
 
-go 1.22.1
+go 1.23
 
 require (
 	github.com/coreos/go-oidc v2.2.1+incompatible
